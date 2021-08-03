@@ -2,6 +2,7 @@ package main
 
 import (
 	"convert-bot/photopdf"
+	"flag"
 	"fmt"
 	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"io"
@@ -9,18 +10,20 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 )
 
-const BotToken = "" // Enter your Bot Token
+var BotToken *string
 
 var source = "./assets"
 var tempDirectory string
 
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI(BotToken)
+	BotToken = flag.String("token", "", "telegram.org")
+	flag.Parse()
+
+	bot, err := tgbotapi.NewBotAPI(*BotToken)
 	if err != nil {
 		log.Panic(err)
 	}
@@ -34,38 +37,44 @@ func main() {
 
 	updates, err := bot.GetUpdatesChan(u)
 
-	/// У каждого пользователя(чат айди) должна быть своя папка с доками. Проверяется условие на существование, если такой нет, то создается. | НЕТ. ДЕЛАЕМ АСИНХРОННОСТЬ!
-	/// ДЕЛАЕМ БОТА ДЛЯ НАГРУЗОК В ОДНОМ ПОТОКЕ, ДАЛЕЕ РЕАЛИЗОВЫВАЕМ ТО, ЧТО ВЫШЕ
-
 	for update := range updates {
 		if update.Message == nil { // ignore any non-Message Updates
 			continue
+		} else if update.Message.Text != "" && !update.Message.IsCommand() {
+			bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Я умею конвертировать фотки в пдф. В левом нижнем углу есть меню со всеми командами)\nОтправь /go и загрузи все фоточки одним сообщением."))
 		}
 
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
-		switch strings.ToLower(update.Message.Text) {
-		case "хочу конвертировать":
-			bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Загрузи все фоточки одним сообщением. Напиши 'Летсконверт', когда будешь готов отправить на конвертацию!"))
-			tempDirectory = tempDir()
-		case "летсконверт":
-			bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Уно моменто, сейчас всё будет сделано :)"))
-			log.Printf("Начинаю конвертацию")
-			photopdf.Convert(tempDirectory)
-			log.Printf("Закончил. Ждем 5с.")
-		case "":
-		default:
-			if tempDirectory == "" {
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Напиши 'Хочу конвертировать', чтобы я принял фотки)."))
-			} else {
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Напиши 'Летсконверт', чтобы я начал конвертацию."))
+		if update.Message.IsCommand() {
+
+			switch update.Message.Command() {
+			case "go":
+				if tempDirectory != "" {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Загрузи все фоточки одним сообщением и ПОДОЖДИ 10сек.\nСкинь команду /convert, когда будешь готов отправить на конвертацию!\n\nЕсли что-то пошло не так, то нажми на /cancel и попробуй еще раз."))
+				} else{
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Загрузи все фоточки одним сообщением и ПОДОЖДИ 10сек.\nСкинь команду /convert, когда будешь готов отправить на конвертацию!"))
+					tempDirectory = tempDir()
+				}
+
+			case "convert":
+				if tempDirectory == "" {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Сначала отправь команду /go."))
+				} else {
+					bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Cейчас всё будет сделано :)"))
+					log.Printf("Начинаю конвертацию")
+					photopdf.Convert(tempDirectory)
+					log.Printf("Закончил. Ждем 5с.")
+				}
+			default:
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Я не знаю такой команды. Список доступных команд в меню в левом нижнем углу"))
 			}
 		}
 
 		if update.Message.Photo != nil {
 			filePath := getTgFilePath(&update, bot)
 			if tempDirectory == "" {
-				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Сначала напиши 'Хочу конвертировать"))
+				bot.Send(tgbotapi.NewMessage(update.Message.Chat.ID, "Сначала отправь команду /go"))
 			} else {
 				MakeRequest(filePath, tempDirectory)
 			}
@@ -107,7 +116,7 @@ func tempDir() string {
 
 func MakeRequest(url string, tempDir string) {
 	time.Sleep(1 * time.Second)
-	resp, err := http.Get(fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", BotToken, url))
+	resp, err := http.Get(fmt.Sprintf("https://api.telegram.org/file/bot%s/%s", *BotToken, url))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -125,5 +134,3 @@ func MakeRequest(url string, tempDir string) {
 
 	ioutil.WriteFile(fmt.Sprintf("./%s/%d.jpg", tempDir, time.Now().Unix()), body, 0o666)
 }
-
-
