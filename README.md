@@ -2,4 +2,4 @@
 
 #### This telegram bot can convert your photos to pdf
 
-designed by Aidar Galimov_
+designed by Aidar Galimov
